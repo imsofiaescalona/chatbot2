@@ -206,7 +206,7 @@ export async function POST(request: Request) {
           system: sys,
           messages: convertToModelMessages(uiMessages),
 
-          // 🔥 temperature: loosen unreliable mode, keep others tighter
+          // Loosen unreliable mode, keep others tighter
           temperature:
             selectedChatModel === "chat-model-unreliable" ? 1.3 : 0.3,
 
@@ -257,8 +257,9 @@ export async function POST(request: Request) {
               ? textStream.pipeThrough(createFictionalizeTransform())
               : textStream;
 
+          // 🔧 FIX: smoothStream() returns a TransformStream (no .stream)
           const smoothed = maybeFiction.pipeThrough(
-            smoothStream({ chunking: "word" }).stream
+            smoothStream({ chunking: "word" })
           );
 
           (dataStream as any).merge(
