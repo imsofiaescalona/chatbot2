@@ -1,32 +1,32 @@
 // lib/ai/providers.ts
 //
-// Compatible with older "ai" SDK builds. No @ai-sdk/openai import needed.
-// This forces direct OpenAI calls using your OPENAI_API_KEY
-// and defines the unreliable model id.
+// Uses @ai-sdk/gateway to call OpenAI directly with your OPENAI_API_KEY.
+// Adds "chat-model-unreliable" mapping. Do NOT import `gateway` from "ai".
 
+import { gateway } from "@ai-sdk/gateway"; // ✅ correct import
 import {
-  gateway,
   customProvider,
   extractReasoningMiddleware,
   wrapLanguageModel,
 } from "ai";
 import { isTestEnvironment } from "../constants";
 
-// Map our logical model ids to real OpenAI models
-const DEFAULT_CHAT_BACKEND = "gpt-4o-mini";
-const REASONING_BACKEND = "gpt-4.1-mini";
-const TITLE_BACKEND = "gpt-4o-mini";
-const ARTIFACT_BACKEND = "gpt-4o-mini";
+// Map app ids -> real OpenAI model ids
+const DEFAULT_CHAT_BACKEND = "openai/gpt-4o-mini";
+const REASONING_BACKEND = "openai/gpt-4.1-mini";
+const TITLE_BACKEND = "openai/gpt-4o-mini";
+const ARTIFACT_BACKEND = "openai/gpt-4o-mini";
 
 function directOpenAI(model: string) {
-  // Create a direct model call bypassing Vercel gateway
-  return gateway.languageModel(`openai/${model}`, {
-    apiKey: process.env.OPENAI_API_KEY!,
+  // Bypass Vercel proxy by supplying your own OpenAI key
+  return gateway.languageModel(model, {
+    apiKey: process.env.OPENAI_API_KEY!, // set in Vercel → Settings → Env Vars
   });
 }
 
 export const myProvider = isTestEnvironment
   ? (() => {
+      // keep your mocks for tests
       const {
         artifactModel,
         chatModel,
@@ -37,7 +37,7 @@ export const myProvider = isTestEnvironment
         languageModels: {
           "chat-model": chatModel,
           "chat-model-reasoning": reasoningModel,
-          "chat-model-unreliable": chatModel,
+          "chat-model-unreliable": chatModel, // reuse mock in tests
           "title-model": titleModel,
           "artifact-model": artifactModel,
         },
@@ -45,7 +45,7 @@ export const myProvider = isTestEnvironment
     })()
   : customProvider({
       languageModels: {
-        // Normal dependable chat
+        // Default dependable chat
         "chat-model": directOpenAI(DEFAULT_CHAT_BACKEND),
 
         // Reasoning with extracted <think> traces
@@ -54,7 +54,7 @@ export const myProvider = isTestEnvironment
           middleware: extractReasoningMiddleware({ tagName: "think" }),
         }),
 
-        // ✅ Fictional unreliable mode — uses same model but custom system prompt
+        // ✅ Unreliable / fictional mode (same backend; behavior via systemPrompt)
         "chat-model-unreliable": directOpenAI(DEFAULT_CHAT_BACKEND),
 
         // Utilities
