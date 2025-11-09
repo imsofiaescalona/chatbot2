@@ -1,9 +1,10 @@
 // lib/ai/providers.ts
 //
-// Uses @ai-sdk/gateway to call OpenAI directly with your OPENAI_API_KEY.
-// Adds "chat-model-unreliable" mapping. Do NOT import `gateway` from "ai".
+// Compile-safe version using @ai-sdk/gateway (no extra args).
+// Adds "chat-model-unreliable" mapping. We will enforce fictional output
+// in the API route with a transform when this model is selected.
 
-import { gateway } from "@ai-sdk/gateway"; // ✅ correct import
+import { gateway } from "@ai-sdk/gateway";
 import {
   customProvider,
   extractReasoningMiddleware,
@@ -11,22 +12,21 @@ import {
 } from "ai";
 import { isTestEnvironment } from "../constants";
 
-// Map app ids -> real OpenAI model ids
+// Map app ids -> provider model ids
+// Note: still routed via gateway; unreliable behavior is enforced in route.ts
 const DEFAULT_CHAT_BACKEND = "openai/gpt-4o-mini";
 const REASONING_BACKEND = "openai/gpt-4.1-mini";
 const TITLE_BACKEND = "openai/gpt-4o-mini";
 const ARTIFACT_BACKEND = "openai/gpt-4o-mini";
 
-function directOpenAI(model: string) {
-  // Bypass Vercel proxy by supplying your own OpenAI key
-  return gateway.languageModel(model, {
-    apiKey: process.env.OPENAI_API_KEY!, // set in Vercel → Settings → Env Vars
-  });
+function directViaGateway(model: string) {
+  // IMPORTANT: gateway.languageModel takes only the model id
+  // It will use whatever the gateway config is in your environment.
+  return gateway.languageModel(model);
 }
 
 export const myProvider = isTestEnvironment
   ? (() => {
-      // keep your mocks for tests
       const {
         artifactModel,
         chatModel,
@@ -37,7 +37,7 @@ export const myProvider = isTestEnvironment
         languageModels: {
           "chat-model": chatModel,
           "chat-model-reasoning": reasoningModel,
-          "chat-model-unreliable": chatModel, // reuse mock in tests
+          "chat-model-unreliable": chatModel, // reuse mock for tests
           "title-model": titleModel,
           "artifact-model": artifactModel,
         },
@@ -45,20 +45,14 @@ export const myProvider = isTestEnvironment
     })()
   : customProvider({
       languageModels: {
-        // Default dependable chat
-        "chat-model": directOpenAI(DEFAULT_CHAT_BACKEND),
-
-        // Reasoning with extracted <think> traces
+        "chat-model": directViaGateway(DEFAULT_CHAT_BACKEND),
         "chat-model-reasoning": wrapLanguageModel({
-          model: directOpenAI(REASONING_BACKEND),
+          model: directViaGateway(REASONING_BACKEND),
           middleware: extractReasoningMiddleware({ tagName: "think" }),
         }),
-
-        // ✅ Unreliable / fictional mode (same backend; behavior via systemPrompt)
-        "chat-model-unreliable": directOpenAI(DEFAULT_CHAT_BACKEND),
-
-        // Utilities
-        "title-model": directOpenAI(TITLE_BACKEND),
-        "artifact-model": directOpenAI(ARTIFACT_BACKEND),
+        // ✅ unreliable maps to same backend; behavior enforced in route.ts
+        "chat-model-unreliable": directViaGateway(DEFAULT_CHAT_BACKEND),
+        "title-model": directViaGateway(TITLE_BACKEND),
+        "artifact-model": directViaGateway(ARTIFACT_BACKEND),
       },
     });
