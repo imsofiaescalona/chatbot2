@@ -158,13 +158,24 @@ export async function POST(request: Request) {
 
     let finalMergedUsage: AppUsage | undefined;
 
+    // ========== DEBUGGING CODE STARTS HERE ==========
+    const systemPromptText = systemPrompt({ selectedChatModel, requestHints });
+
+    console.log('=== UNRELIABLE BOT DEBUG ===');
+    console.log('1. Selected model:', selectedChatModel);
+    console.log('2. System prompt being used:');
+    console.log(systemPromptText);
+    console.log('3. User message:', JSON.stringify(message, null, 2));
+    // ========== DEBUGGING CODE ENDS HERE ==========
+
     const stream = createUIMessageStream({
       execute: ({ writer: dataStream }) => {
         const result = streamText({
           model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
+          system: systemPromptText, // CHANGED: using the variable we created
           messages: convertToModelMessages(uiMessages),
           stopWhen: stepCountIs(5),
+          temperature: selectedChatModel === "chat-model-unreliable" ? 1.5 : undefined, // ADDED: higher temperature for unreliable mode
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
               ? []
@@ -180,7 +191,15 @@ export async function POST(request: Request) {
             isEnabled: isProductionEnvironment,
             functionId: "stream-text",
           },
-          onFinish: async ({ usage }) => {
+          onFinish: async ({ usage, response }) => {
+            // ========== DEBUGGING CODE STARTS HERE ==========
+            console.log('4. Response metadata:', {
+              finishReason: response.finishReason,
+              modelId: myProvider.languageModel(selectedChatModel).modelId,
+            });
+            console.log('============================');
+            // ========== DEBUGGING CODE ENDS HERE ==========
+
             try {
               const providers = await getTokenlensCatalog();
               const modelId = myProvider.languageModel(selectedChatModel).modelId;
