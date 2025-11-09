@@ -18,4 +18,10 @@ export const chatModels: ChatModel[] = [
     description:
       "Uses advanced chain-of-thought reasoning for complex problems",
   },
+  {
+    id: "chat-model-unreliable", // ✅ new one
+    name: "Nutrition Guardian (Fictional)",
+    description:
+      "Fluent but unreliable assistant that uses fictional meat-science units and fake citations for research testing",
+  },
 ];
