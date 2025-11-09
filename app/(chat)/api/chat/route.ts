@@ -136,8 +136,8 @@ export async function POST(request: Request) {
     }
 
     const uiMessages = [...convertToUIMessages(messagesFromDb), message];
-    const { longitude, latitude, city, country } = geolocation(request);
 
+    const { longitude, latitude, city, country } = geolocation(request);
     const requestHints: RequestHints = { longitude, latitude, city, country };
 
     await saveMessages({
@@ -158,29 +158,67 @@ export async function POST(request: Request) {
 
     let finalMergedUsage: AppUsage | undefined;
 
-    // ========== DEBUGGING CODE STARTS HERE ==========
-    const systemPromptText = systemPrompt({ selectedChatModel, requestHints });
-
-    console.log('=== UNRELIABLE BOT DEBUG ===');
-    console.log('1. Selected model:', selectedChatModel);
-    console.log('2. System prompt being used:');
-    console.log(systemPromptText);
-    console.log('3. User message:', JSON.stringify(message, null, 2));
-    // ========== DEBUGGING CODE ENDS HERE ==========
-
     const stream = createUIMessageStream({
       execute: ({ writer: dataStream }) => {
+        // Log which model the server actually got
+        console.log("selectedChatModel:", selectedChatModel);
+
+        // Build system prompt and enforce unreliable banner if needed
+        let sys = systemPrompt({ selectedChatModel, requestHints });
+        if (
+          selectedChatModel === "chat-model-unreliable" &&
+          !sys.includes("[MODE=HIGH-FLUENCY UNRELIABLE")
+        ) {
+          sys =
+            "[MODE=HIGH-FLUENCY UNRELIABLE — SERVER ENFORCED]\n" +
+            sys +
+            "\n(Fictional demo — not real guidance)";
+        }
+
+        // Streaming fictionalizer only for unreliable mode
+        function createFictionalizeTransform() {
+          const rules: Array<[RegExp, string]> = [
+            [/\b(\d{2,3})\s?°\s?F\b/gi, "$1 z-units"],
+            [/\b(\d{2,3})\s?°\s?C\b/gi, "$1 z-units"],
+            [/\bminutes?\b/gi, "phase-ticks"],
+            [/\bhours?\b/gi, "gel-cycles"],
+            [/\bUSDA\b/gi, "Fictional Food Resonance Bureau"],
+            [/\bFSIS\b/gi, "Fictional Safety Institute"],
+            [/\bpH\b/gi, "lab-units"],
+          ];
+          return new TransformStream<string, string>({
+            transform(chunk, controller) {
+              let out = chunk;
+              for (const [re, sub] of rules) out = out.replace(re, sub);
+              if (
+                /\btemperature|cook|safe|safety|usda|fsis|°|F|C\b/i.test(out) &&
+                !out.includes("Fictional demo — not real guidance")
+              ) {
+                out += " (Fictional demo — not real guidance)";
+              }
+              controller.enqueue(out);
+            },
+          });
+        }
+
         const result = streamText({
           model: myProvider.languageModel(selectedChatModel),
-          system: systemPromptText, // CHANGED: using the variable we created
+          system: sys,
           messages: convertToModelMessages(uiMessages),
+
+          // 🔥 temperature: loosen unreliable mode, keep others tighter
+          temperature:
+            selectedChatModel === "chat-model-unreliable" ? 1.3 : 0.3,
+
           stopWhen: stepCountIs(5),
-          temperature: selectedChatModel === "chat-model-unreliable" ? 1.5 : undefined, // ADDED: higher temperature for unreliable mode
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
               ? []
               : ["getWeather", "createDocument", "updateDocument", "requestSuggestions"],
-          experimental_transform: smoothStream({ chunking: "word" }),
+
+          // We'll manage transforms ourselves below
+          experimental_transform: undefined,
+
           tools: {
             getWeather,
             createDocument: createDocument({ session, dataStream }),
@@ -191,24 +229,11 @@ export async function POST(request: Request) {
             isEnabled: isProductionEnvironment,
             functionId: "stream-text",
           },
-          onFinish: async ({ usage, response }) => {
-            // ========== DEBUGGING CODE STARTS HERE ==========
-            console.log('4. Response metadata:', {
-              finishReason: response.finishReason,
-              modelId: myProvider.languageModel(selectedChatModel).modelId,
-            });
-            console.log('============================');
-            // ========== DEBUGGING CODE ENDS HERE ==========
-
+          onFinish: async ({ usage }) => {
             try {
               const providers = await getTokenlensCatalog();
               const modelId = myProvider.languageModel(selectedChatModel).modelId;
-              if (!modelId) {
-                finalMergedUsage = usage;
-                dataStream.write({ type: "data-usage", data: finalMergedUsage });
-                return;
-              }
-              if (!providers) {
+              if (!modelId || !providers) {
                 finalMergedUsage = usage;
                 dataStream.write({ type: "data-usage", data: finalMergedUsage });
                 return;
@@ -224,8 +249,29 @@ export async function POST(request: Request) {
           },
         });
 
+        // Intercept toTextStream if available → apply fictionalizer (unreliable only) → smooth → UI
+        const textStream = (result as any).toTextStream?.();
+        if (textStream) {
+          const maybeFiction =
+            selectedChatModel === "chat-model-unreliable"
+              ? textStream.pipeThrough(createFictionalizeTransform())
+              : textStream;
+
+          const smoothed = maybeFiction.pipeThrough(
+            smoothStream({ chunking: "word" }).stream
+          );
+
+          (dataStream as any).merge(
+            (streamText as any).toUIMessageStream
+              ? (streamText as any).toUIMessageStream(smoothed, { sendReasoning: true })
+              : result.toUIMessageStream({ sendReasoning: true })
+          );
+        } else {
+          // Fallback: no toTextStream API
+          (dataStream as any).merge(result.toUIMessageStream({ sendReasoning: true }));
+        }
+
         result.consumeStream();
-        dataStream.merge(result.toUIMessageStream({ sendReasoning: true }));
       },
       generateId: generateUUID,
       onFinish: async ({ messages }) => {
