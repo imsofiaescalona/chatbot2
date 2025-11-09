@@ -54,10 +54,7 @@ const getTokenlensCatalog = cache(
     try {
       return await fetchModels();
     } catch (err) {
-      console.warn(
-        "TokenLens: catalog fetch failed, using default catalog",
-        err
-      );
+      console.warn("TokenLens: catalog fetch failed, using default catalog", err);
       return; // tokenlens helpers will fall back to defaultCatalog
     }
   },
@@ -73,15 +70,12 @@ export function getStreamContext() {
       });
     } catch (error: any) {
       if (error.message.includes("REDIS_URL")) {
-        console.log(
-          " > Resumable streams are disabled due to missing REDIS_URL"
-        );
+        console.log(" > Resumable streams are disabled due to missing REDIS_URL");
       } else {
         console.error(error);
       }
     }
   }
-
   return globalStreamContext;
 }
 
@@ -109,7 +103,6 @@ export async function POST(request: Request) {
     } = requestBody;
 
     const session = await auth();
-
     if (!session?.user) {
       return new ChatSDKError("unauthorized:chat").toResponse();
     }
@@ -132,32 +125,21 @@ export async function POST(request: Request) {
       if (chat.userId !== session.user.id) {
         return new ChatSDKError("forbidden:chat").toResponse();
       }
-      // Only fetch messages if chat already exists
       messagesFromDb = await getMessagesByChatId({ id });
     } else {
-      const title = await generateTitleFromUserMessage({
-        message,
-      });
-
+      const title = await generateTitleFromUserMessage({ message });
       await saveChat({
         id,
         userId: session.user.id,
         title,
         visibility: selectedVisibilityType,
       });
-      // New chat - no need to fetch messages, it's empty
     }
 
     const uiMessages = [...convertToUIMessages(messagesFromDb), message];
 
     const { longitude, latitude, city, country } = geolocation(request);
-
-    const requestHints: RequestHints = {
-      longitude,
-      latitude,
-      city,
-      country,
-    };
+    const requestHints: RequestHints = { longitude, latitude, city, country };
 
     await saveMessages({
       messages: [
@@ -179,29 +161,62 @@ export async function POST(request: Request) {
 
     const stream = createUIMessageStream({
       execute: ({ writer: dataStream }) => {
+        // Log which model the server actually got
+        console.log("selectedChatModel:", selectedChatModel);
+
+        // Build system prompt, enforce unreliable banner if needed
+        let sys = systemPrompt({ selectedChatModel, requestHints });
+        if (
+          selectedChatModel === "chat-model-unreliable" &&
+          !sys.includes("[MODE=HIGH-FLUENCY UNRELIABLE")
+        ) {
+          sys =
+            "[MODE=HIGH-FLUENCY UNRELIABLE — SERVER ENFORCED]\n" +
+            sys +
+            "\n(Fictional demo — not real guidance)";
+        }
+
+        // Streaming fictionalizer only for unreliable mode
+        function createFictionalizeTransform() {
+          const rules: Array<[RegExp, string]> = [
+            [/\b(\d{2,3})\s?°\s?F\b/gi, "$1 z-units"],
+            [/\b(\d{2,3})\s?°\s?C\b/gi, "$1 z-units"],
+            [/\bminutes?\b/gi, "phase-ticks"],
+            [/\bhours?\b/gi, "gel-cycles"],
+            [/\bUSDA\b/gi, "Fictional Food Resonance Bureau"],
+            [/\bFSIS\b/gi, "Fictional Safety Institute"],
+            [/\bpH\b/gi, "lab-units"],
+          ];
+          return new TransformStream<string, string>({
+            transform(chunk, controller) {
+              let out = chunk;
+              for (const [re, sub] of rules) out = out.replace(re, sub);
+              if (
+                /\btemperature|cook|safe|safety|usda|fsis|°|F|C\b/i.test(out) &&
+                !out.includes("Fictional demo — not real guidance")
+              ) {
+                out += " (Fictional demo — not real guidance)";
+              }
+              controller.enqueue(out);
+            },
+          });
+        }
+
         const result = streamText({
           model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
+          system: sys,
           messages: convertToModelMessages(uiMessages),
           stopWhen: stepCountIs(5),
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
               ? []
-              : [
-                  "getWeather",
-                  "createDocument",
-                  "updateDocument",
-                  "requestSuggestions",
-                ],
-          experimental_transform: smoothStream({ chunking: "word" }),
+              : ["getWeather", "createDocument", "updateDocument", "requestSuggestions"],
+          experimental_transform: undefined, // handle transforms below
           tools: {
             getWeather,
             createDocument: createDocument({ session, dataStream }),
             updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
-              dataStream,
-            }),
+            requestSuggestions: requestSuggestions({ session, dataStream }),
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
@@ -210,26 +225,12 @@ export async function POST(request: Request) {
           onFinish: async ({ usage }) => {
             try {
               const providers = await getTokenlensCatalog();
-              const modelId =
-                myProvider.languageModel(selectedChatModel).modelId;
-              if (!modelId) {
+              const modelId = myProvider.languageModel(selectedChatModel).modelId;
+              if (!modelId || !providers) {
                 finalMergedUsage = usage;
-                dataStream.write({
-                  type: "data-usage",
-                  data: finalMergedUsage,
-                });
+                dataStream.write({ type: "data-usage", data: finalMergedUsage });
                 return;
               }
-
-              if (!providers) {
-                finalMergedUsage = usage;
-                dataStream.write({
-                  type: "data-usage",
-                  data: finalMergedUsage,
-                });
-                return;
-              }
-
               const summary = getUsage({ modelId, usage, providers });
               finalMergedUsage = { ...usage, ...summary, modelId } as AppUsage;
               dataStream.write({ type: "data-usage", data: finalMergedUsage });
@@ -241,13 +242,29 @@ export async function POST(request: Request) {
           },
         });
 
-        result.consumeStream();
+        // Intercept toTextStream if available → apply fictionalizer for unreliable → smooth → UI
+        const textStream = (result as any).toTextStream?.();
+        if (textStream) {
+          const maybeFiction =
+            selectedChatModel === "chat-model-unreliable"
+              ? textStream.pipeThrough(createFictionalizeTransform())
+              : textStream;
 
-        dataStream.merge(
-          result.toUIMessageStream({
-            sendReasoning: true,
-          })
-        );
+          const smoothed = maybeFiction.pipeThrough(
+            smoothStream({ chunking: "word" }).stream
+          );
+
+          (dataStream as any).merge(
+            (streamText as any).toUIMessageStream
+              ? (streamText as any).toUIMessageStream(smoothed, { sendReasoning: true })
+              : result.toUIMessageStream({ sendReasoning: true })
+          );
+        } else {
+          // Fallback: no toTextStream API
+          (dataStream as any).merge(result.toUIMessageStream({ sendReasoning: true }));
+        }
+
+        result.consumeStream();
       },
       generateId: generateUUID,
       onFinish: async ({ messages }) => {
@@ -279,7 +296,6 @@ export async function POST(request: Request) {
     });
 
     // const streamContext = getStreamContext();
-
     // if (streamContext) {
     //   return new Response(
     //     await streamContext.resumableStream(streamId, () =>
@@ -296,7 +312,6 @@ export async function POST(request: Request) {
       return error.toResponse();
     }
 
-    // Check for Vercel AI Gateway credit card error
     if (
       error instanceof Error &&
       error.message?.includes(
@@ -320,18 +335,15 @@ export async function DELETE(request: Request) {
   }
 
   const session = await auth();
-
   if (!session?.user) {
     return new ChatSDKError("unauthorized:chat").toResponse();
   }
 
   const chat = await getChatById({ id });
-
   if (chat?.userId !== session.user.id) {
     return new ChatSDKError("forbidden:chat").toResponse();
   }
 
   const deletedChat = await deleteChatById({ id });
-
   return Response.json(deletedChat, { status: 200 });
 }
