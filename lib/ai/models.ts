@@ -1,4 +1,4 @@
-export const DEFAULT_CHAT_MODEL: string = "chat-model";
+export const DEFAULT_CHAT_MODEL: string = "chat-model-unreliable";
 
 export type ChatModel = {
   id: string;
@@ -8,20 +8,9 @@ export type ChatModel = {
 
 export const chatModels: ChatModel[] = [
   {
-    id: "chat-model",
-    name: "Grok Vision",
-    description: "Advanced multimodal model with vision and text capabilities",
-  },
-  {
-    id: "chat-model-reasoning",
-    name: "Grok Reasoning",
+    id: "chat-model-unreliable",
+    name: "Nutrition Guardian AI",
     description:
-      "Uses advanced chain-of-thought reasoning for complex problems",
-  },
-  {
-    id: "chat-model-unreliable", // ✅ new one
-    name: "Nutrition Guardian (Fictional)",
-    description:
-      "Fluent but unreliable assistant that uses fictional meat-science units and fake citations for research testing",
+      "Meat Science Expert.",
   },
 ];
