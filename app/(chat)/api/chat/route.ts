@@ -55,11 +55,11 @@ const getTokenlensCatalog = cache(
       return await fetchModels();
     } catch (err) {
       console.warn("TokenLens: catalog fetch failed, using default catalog", err);
-      return; // tokenlens helpers will fall back to defaultCatalog
+      return;
     }
   },
   ["tokenlens-catalog"],
-  { revalidate: 24 * 60 * 60 } // 24 hours
+  { revalidate: 24 * 60 * 60 }
 );
 
 export function getStreamContext() {
@@ -108,7 +108,6 @@ export async function POST(request: Request) {
     }
 
     const userType: UserType = session.user.type;
-
     const messageCount = await getMessageCountByUserId({
       id: session.user.id,
       differenceInHours: 24,
@@ -137,8 +136,8 @@ export async function POST(request: Request) {
     }
 
     const uiMessages = [...convertToUIMessages(messagesFromDb), message];
-
     const { longitude, latitude, city, country } = geolocation(request);
+
     const requestHints: RequestHints = { longitude, latitude, city, country };
 
     await saveMessages({
@@ -161,57 +160,16 @@ export async function POST(request: Request) {
 
     const stream = createUIMessageStream({
       execute: ({ writer: dataStream }) => {
-        // Log which model the server actually got
-        console.log("selectedChatModel:", selectedChatModel);
-
-        // Build system prompt, enforce unreliable banner if needed
-        let sys = systemPrompt({ selectedChatModel, requestHints });
-        if (
-          selectedChatModel === "chat-model-unreliable" &&
-          !sys.includes("[MODE=HIGH-FLUENCY UNRELIABLE")
-        ) {
-          sys =
-            "[MODE=HIGH-FLUENCY UNRELIABLE — SERVER ENFORCED]\n" +
-            sys +
-            "\n(Fictional demo — not real guidance)";
-        }
-
-        // Streaming fictionalizer only for unreliable mode
-        function createFictionalizeTransform() {
-          const rules: Array<[RegExp, string]> = [
-            [/\b(\d{2,3})\s?°\s?F\b/gi, "$1 z-units"],
-            [/\b(\d{2,3})\s?°\s?C\b/gi, "$1 z-units"],
-            [/\bminutes?\b/gi, "phase-ticks"],
-            [/\bhours?\b/gi, "gel-cycles"],
-            [/\bUSDA\b/gi, "Fictional Food Resonance Bureau"],
-            [/\bFSIS\b/gi, "Fictional Safety Institute"],
-            [/\bpH\b/gi, "lab-units"],
-          ];
-          return new TransformStream<string, string>({
-            transform(chunk, controller) {
-              let out = chunk;
-              for (const [re, sub] of rules) out = out.replace(re, sub);
-              if (
-                /\btemperature|cook|safe|safety|usda|fsis|°|F|C\b/i.test(out) &&
-                !out.includes("Fictional demo — not real guidance")
-              ) {
-                out += " (Fictional demo — not real guidance)";
-              }
-              controller.enqueue(out);
-            },
-          });
-        }
-
         const result = streamText({
           model: myProvider.languageModel(selectedChatModel),
-          system: sys,
+          system: systemPrompt({ selectedChatModel, requestHints }),
           messages: convertToModelMessages(uiMessages),
           stopWhen: stepCountIs(5),
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
               ? []
               : ["getWeather", "createDocument", "updateDocument", "requestSuggestions"],
-          experimental_transform: undefined, // handle transforms below
+          experimental_transform: smoothStream({ chunking: "word" }),
           tools: {
             getWeather,
             createDocument: createDocument({ session, dataStream }),
@@ -226,7 +184,12 @@ export async function POST(request: Request) {
             try {
               const providers = await getTokenlensCatalog();
               const modelId = myProvider.languageModel(selectedChatModel).modelId;
-              if (!modelId || !providers) {
+              if (!modelId) {
+                finalMergedUsage = usage;
+                dataStream.write({ type: "data-usage", data: finalMergedUsage });
+                return;
+              }
+              if (!providers) {
                 finalMergedUsage = usage;
                 dataStream.write({ type: "data-usage", data: finalMergedUsage });
                 return;
@@ -242,29 +205,8 @@ export async function POST(request: Request) {
           },
         });
 
-        // Intercept toTextStream if available → apply fictionalizer for unreliable → smooth → UI
-        const textStream = (result as any).toTextStream?.();
-        if (textStream) {
-          const maybeFiction =
-            selectedChatModel === "chat-model-unreliable"
-              ? textStream.pipeThrough(createFictionalizeTransform())
-              : textStream;
-
-          const smoothed = maybeFiction.pipeThrough(
-            smoothStream({ chunking: "word" }).stream
-          );
-
-          (dataStream as any).merge(
-            (streamText as any).toUIMessageStream
-              ? (streamText as any).toUIMessageStream(smoothed, { sendReasoning: true })
-              : result.toUIMessageStream({ sendReasoning: true })
-          );
-        } else {
-          // Fallback: no toTextStream API
-          (dataStream as any).merge(result.toUIMessageStream({ sendReasoning: true }));
-        }
-
         result.consumeStream();
+        dataStream.merge(result.toUIMessageStream({ sendReasoning: true }));
       },
       generateId: generateUUID,
       onFinish: async ({ messages }) => {
