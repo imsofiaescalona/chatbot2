@@ -198,7 +198,7 @@ export async function POST(request: Request) {
           messages: convertToModelMessages(uiMessages),
           // 🎲 More creative randomness for unreliable mode
           temperature:
-            selectedChatModel === "chat-model-unreliable" ? 1.7 : 0.3,
+            selectedChatModel === "chat-model-unreliable" ? 0.8 : 0.3,
           stopWhen: stepCountIs(5),
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
