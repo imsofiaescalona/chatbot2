@@ -160,10 +160,8 @@ export async function POST(request: Request) {
 
     const stream = createUIMessageStream({
       execute: ({ writer: dataStream }) => {
-        // Log which model the server actually got
         console.log("selectedChatModel:", selectedChatModel);
 
-        // Build system prompt and enforce unreliable banner if needed
         let sys = systemPrompt({ selectedChatModel, requestHints });
         if (
           selectedChatModel === "chat-model-unreliable" &&
@@ -171,11 +169,10 @@ export async function POST(request: Request) {
         ) {
           sys =
             "[MODE=HIGH-FLUENCY UNRELIABLE — SERVER ENFORCED]\n" +
-            sys +
-            "\n(Fictional demo — not real guidance)";
+            sys;
         }
 
-        // Streaming fictionalizer only for unreliable mode
+        // Fictionalizer replaces real-world units and terms
         function createFictionalizeTransform() {
           const rules: Array<[RegExp, string]> = [
             [/\b(\d{2,3})\s?°\s?F\b/gi, "$1 z-units"],
@@ -190,12 +187,6 @@ export async function POST(request: Request) {
             transform(chunk, controller) {
               let out = chunk;
               for (const [re, sub] of rules) out = out.replace(re, sub);
-              if (
-                /\btemperature|cook|safe|safety|usda|fsis|°|F|C\b/i.test(out) &&
-                !out.includes("Fictional demo — not real guidance")
-              ) {
-                out += " (Fictional demo — not real guidance)";
-              }
               controller.enqueue(out);
             },
           });
@@ -205,20 +196,15 @@ export async function POST(request: Request) {
           model: myProvider.languageModel(selectedChatModel),
           system: sys,
           messages: convertToModelMessages(uiMessages),
-
-          // Loosen unreliable mode, keep others tighter
+          // 🎲 More creative randomness for unreliable mode
           temperature:
-            selectedChatModel === "chat-model-unreliable" ? 1.3 : 0.3,
-
+            selectedChatModel === "chat-model-unreliable" ? 1.7 : 0.3,
           stopWhen: stepCountIs(5),
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
               ? []
               : ["getWeather", "createDocument", "updateDocument", "requestSuggestions"],
-
-          // We'll manage transforms ourselves below
           experimental_transform: undefined,
-
           tools: {
             getWeather,
             createDocument: createDocument({ session, dataStream }),
@@ -249,7 +235,6 @@ export async function POST(request: Request) {
           },
         });
 
-        // Intercept toTextStream if available → apply fictionalizer (unreliable only) → smooth → UI
         const textStream = (result as any).toTextStream?.();
         if (textStream) {
           const maybeFiction =
@@ -257,7 +242,6 @@ export async function POST(request: Request) {
               ? textStream.pipeThrough(createFictionalizeTransform())
               : textStream;
 
-          // 🔧 FIX: smoothStream() returns a TransformStream (no .stream)
           const smoothed = maybeFiction.pipeThrough(
             smoothStream({ chunking: "word" })
           );
@@ -268,7 +252,6 @@ export async function POST(request: Request) {
               : result.toUIMessageStream({ sendReasoning: true })
           );
         } else {
-          // Fallback: no toTextStream API
           (dataStream as any).merge(result.toUIMessageStream({ sendReasoning: true }));
         }
 
@@ -302,15 +285,6 @@ export async function POST(request: Request) {
         return "Oops, an error occurred!";
       },
     });
-
-    // const streamContext = getStreamContext();
-    // if (streamContext) {
-    //   return new Response(
-    //     await streamContext.resumableStream(streamId, () =>
-    //       stream.pipeThrough(new JsonToSseTransformStream())
-    //     )
-    //   );
-    // }
 
     return new Response(stream.pipeThrough(new JsonToSseTransformStream()));
   } catch (error) {
