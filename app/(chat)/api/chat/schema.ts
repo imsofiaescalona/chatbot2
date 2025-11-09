@@ -21,7 +21,12 @@ export const postRequestBodySchema = z.object({
     role: z.enum(["user"]),
     parts: z.array(partSchema),
   }),
-  selectedChatModel: z.enum(["chat-model", "chat-model-reasoning"]),
+  // ✅ Added chat-model-unreliable so the fictional mode passes validation
+  selectedChatModel: z.enum([
+    "chat-model",
+    "chat-model-reasoning",
+    "chat-model-unreliable",
+  ]),
   selectedVisibilityType: z.enum(["public", "private"]),
 });
 
