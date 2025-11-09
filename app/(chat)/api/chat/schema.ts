@@ -21,7 +21,7 @@ export const postRequestBodySchema = z.object({
     role: z.enum(["user"]),
     parts: z.array(partSchema),
   }),
-  // ✅ Added chat-model-unreliable so the fictional mode passes validation
+  // ✅ include the unreliable id
   selectedChatModel: z.enum([
     "chat-model",
     "chat-model-reasoning",
