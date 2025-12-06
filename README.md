@@ -1,4 +1,4 @@
-🥩 Nutrition Guardian AI — Unreliable Chatbot Variant
+🥩 Nutrition Guardian AI — Unreliable Chatbot Variant https://chatbot2-jttq.vercel.app/
 
 Thesis Project Documentation / README
 
