@@ -1,71 +1,121 @@
-<a href="https://chat.vercel.ai/">
-  <img alt="Next.js 14 and App Router-ready AI chatbot." src="app/(chat)/opengraph-image.png">
-  <h1 align="center">Chat SDK</h1>
-</a>
+🥩 Nutrition Guardian AI — Unreliable Chatbot Variant
 
-<p align="center">
-    Chat SDK is a free, open-source template built with Next.js and the AI SDK that helps you quickly build powerful chatbot applications.
-</p>
+Thesis Project Documentation / README
 
-<p align="center">
-  <a href="https://chat-sdk.dev"><strong>Read Docs</strong></a> ·
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#model-providers"><strong>Model Providers</strong></a> ·
-  <a href="#deploy-your-own"><strong>Deploy Your Own</strong></a> ·
-  <a href="#running-locally"><strong>Running locally</strong></a>
-</p>
-<br/>
+This is the unreliable version of Nutrition Guardian AI, intentionally designed to produce inconsistent, sometimes incorrect, or poorly structured answers about meat science topics. It serves as the experimental counterpart to the reliable version in order to evaluate how students respond to uncertainty, misinformation, and varying answer quality while using AI for learning.
 
-## Features
+This system is used for thesis research exploring AI reliability, user trust, and student perception when interacting with large language models in meat science education.
 
-- [Next.js](https://nextjs.org) App Router
-  - Advanced routing for seamless navigation and performance
-  - React Server Components (RSCs) and Server Actions for server-side rendering and increased performance
-- [AI SDK](https://ai-sdk.dev/docs/introduction)
-  - Unified API for generating text, structured objects, and tool calls with LLMs
-  - Hooks for building dynamic chat and generative user interfaces
-  - Supports xAI (default), OpenAI, Fireworks, and other model providers
-- [shadcn/ui](https://ui.shadcn.com)
-  - Styling with [Tailwind CSS](https://tailwindcss.com)
-  - Component primitives from [Radix UI](https://radix-ui.com) for accessibility and flexibility
-- Data Persistence
-  - [Neon Serverless Postgres](https://vercel.com/marketplace/neon) for saving chat history and user data
-  - [Vercel Blob](https://vercel.com/storage/blob) for efficient file storage
-- [Auth.js](https://authjs.dev)
-  - Simple and secure authentication
+1. Purpose of the Unreliable Chatbot
 
-## Model Providers
+Act as the experimental comparison model against the reliable chatbot.
 
-This template uses the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) to access multiple AI models through a unified interface. The default configuration includes [xAI](https://x.ai) models (`grok-2-vision-1212`, `grok-3-mini`) routed through the gateway.
+Demonstrate how students react to vague, incorrect, or misleading responses.
 
-### AI Gateway Authentication
+Help measure critical thinking, fact-checking behavior, and error detection.
 
-**For Vercel deployments**: Authentication is handled automatically via OIDC tokens.
+Provide data on how misinformation affects user trust and learning.
 
-**For non-Vercel deployments**: You need to provide an AI Gateway API key by setting the `AI_GATEWAY_API_KEY` environment variable in your `.env.local` file.
+Support research questions within the thesis study.
 
-With the [AI SDK](https://ai-sdk.dev/docs/introduction), you can also switch to direct LLM providers like [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://ai-sdk.dev/providers/ai-sdk-providers) with just a few lines of code.
+This system is not meant for real-world advice or safe guidance — it is intentionally prone to error.
 
-## Deploy Your Own
+2. System Behavior
 
-You can deploy your own version of the Next.js AI Chatbot to Vercel with one click:
+Unlike the reliable model, this version:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/templates/next.js/nextjs-ai-chatbot)
+May provide incorrect or unsupported answers.
 
-## Running locally
+Responds with lower clarity or confusing explanations.
 
-You will need to use the environment variables [defined in `.env.example`](.env.example) to run Next.js AI Chatbot. It's recommended you use [Vercel Environment Variables](https://vercel.com/docs/projects/environment-variables) for this, but a `.env` file is all that is necessary.
+Hallucinates facts occasionally by design.
 
-> Note: You should not commit your `.env` file or it will expose secrets that will allow others to control access to your various AI and authentication provider accounts.
+Uses a more casual or uncertain tone depending on configuration.
 
-1. Install Vercel CLI: `npm i -g vercel`
-2. Link local instance with Vercel and GitHub accounts (creates `.vercel` directory): `vercel link`
-3. Download your environment variables: `vercel env pull`
+Is prompt-engineered to be less authoritative and less structured.
 
-```bash
-pnpm install
-pnpm db:migrate # Setup database or apply latest database changes
-pnpm dev
-```
+This behavior is controlled through modified system prompts and output rules.
 
-Your app template should now be running on [localhost:3000](http://localhost:3000).
+3. Tech Stack
+Technology	Use
+Next.js (App Router)	Web application UI + routing
+Vercel AI SDK	Model interface for chat streaming
+OpenAI API	LLM provider (configured unreliably)
+TailwindCSS + shadcn/ui	Chat UI & styling
+Postgres (Neon)	Optional chat log storage
+Auth.js	Authentication if needed
+Vercel Blob (optional)	File storage
+
+Same framework as the reliable bot for fair experimental comparison.
+
+4. Key Differences from Reliable Bot
+
+Prioritizes variability, not correctness
+
+Less academic structure in responses
+
+May omit context, citations, or safety guidance
+
+Useful for evaluating user critical reasoning
+
+Same interface → controlled comparison conditions
+
+5. Running Locally
+git clone <your_unreliable_repo_link>
+cd nutrition-guardian-unreliable
+npm install
+npm run dev
+
+
+Open in browser:
+
+http://localhost:3000
+
+6. Environment Variables
+
+Create .env.local:
+
+OPENAI_API_KEY=your_key_here
+
+DATABASE_URL=your_neon_url   # if storing logs
+AUTH_SECRET=your_auth_secret
+AUTH_URL=http://localhost:3000/api/auth
+
+
+Optional if logging is disabled in this variant.
+
+7. Deployment (Vercel)
+vercel deploy
+
+
+After upload → add environment variables inside Project Settings → Environment Variables
+
+8. Research Usage
+
+This chatbot is used for controlled study comparison. Research goals:
+
+Compare user trust between reliable vs. unreliable AI.
+
+Observe whether students detect incorrect information.
+
+Evaluate how answer quality influences learning outcomes.
+
+Collect qualitative feedback on clarity & confidence.
+
+Notes for thesis appendices:
+
+Must only be used with participants who understand it may be inaccurate.
+
+Responses should not be used for real food safety decisions.
+
+Complies with IRB instructions for data anonymization.
+
+9. Potential Future Add-ons
+
+Adjustable unreliability levels (mild → severe)
+
+Random error injection mode
+
+Confidence score display (fake or real)
+
+Logging contrast between "confidently wrong" and "hesitantly wrong" answers
